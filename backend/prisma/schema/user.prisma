@@ -1,0 +1,13 @@
+model User {
+    id       String @id @default(uuid())
+    fullname String
+    email    String @unique
+    password String
+
+    createdAt DateTime? @default(now())
+    createdBy String? // maps `created.by` in mongoose
+    updatedAt DateTime? @updatedAt
+    Task      Task[]
+
+    @@map("users")
+}
