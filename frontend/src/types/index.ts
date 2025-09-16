@@ -54,3 +54,41 @@ export interface DetailDTO extends DetailForm {
         page: number;
     };
 }
+
+export interface DetailAIResponse {
+    data: string[];
+    meta: {
+        totalAssessments?: number;
+        totalPages: number;
+        page: number;
+    };
+}
+
+export interface TodoResponse {
+    id: string;
+    title: string;
+    description: string;
+    dueDate: string;
+    status: 'pending' | 'onProgress' | 'done' | 'canceled';
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface DetailAllTodos {
+    data: TodoResponse[];
+    meta: {
+        total?: number;
+        totalPages: number;
+        page: number;
+    };
+}
+
+export interface LoginDTO {
+    access_token: string;
+    user: {
+        id: string;
+        fullname: string;
+        email: string;
+    }
+
+}

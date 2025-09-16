@@ -2,6 +2,7 @@
 
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 import { BE_URL } from '../config';
+import { TokenManager } from './auth-tokens';
 type RequestOptions = {
     headers?: Record<string, string>;
     params?: Record<string, string | number | boolean | undefined | null>;
@@ -39,14 +40,39 @@ const axiosInstance = axios.create({
     timeout: 10000,
 });
 
+axiosInstance.interceptors.request.use(
+    (config) => {
+        const token = TokenManager.getValidAccessToken();
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
+
 axiosInstance.interceptors.response.use(
     (response: AxiosResponse) => response,
-    (error: AxiosError) => {
+    async (error: AxiosError) => {
         let message = 'Request failed';
 
         if (error.response) {
             const errorData = error.response.data as any;
             message = errorData?.message || `Error ${error.response.status}: ${error.response.statusText}`;
+
+            if (error.response.status === 401) {
+                TokenManager.clearTokens();
+
+                if (typeof window !== "undefined") {
+                    const { useAuthStore } = await import('../stores/authStore');
+                    useAuthStore.getState().logout();
+
+                    window.location.href = '/login';
+                }
+
+            }
         } else if (error.request) {
             message = 'Network error - no response received';
         } else {

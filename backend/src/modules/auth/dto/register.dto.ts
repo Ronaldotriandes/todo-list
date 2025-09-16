@@ -1,15 +1,9 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
-
-export enum UserRole {
-    ADMIN = 'admin',
-    USER = 'user',
-    HR = 'hr'
-}
+import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class RegisterDto {
     @IsString()
     @IsNotEmpty()
-    name: string;
+    fullname: string;
 
     @IsEmail()
     @IsNotEmpty()
@@ -19,8 +13,4 @@ export class RegisterDto {
     @IsNotEmpty()
     @MinLength(6)
     password: string;
-
-    @IsEnum(UserRole)
-    @IsOptional()
-    role?: UserRole = UserRole.USER;
 }

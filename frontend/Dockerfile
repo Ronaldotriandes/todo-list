@@ -8,8 +8,11 @@ RUN npm install
 
 COPY . .
 
-RUN npm run build
+RUN rm -rf .next
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+RUN npx next build
 
-EXPOSE 5173
+EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["npx", "next", "start"]

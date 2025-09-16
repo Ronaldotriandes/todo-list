@@ -14,13 +14,9 @@ describe('AuthService', () => {
 
     const mockUser = {
         id: '1',
-        username: 'testuser',
+        email: 'testuser@gmail.com',
         password: 'hashedpassword',
-        role: 'USER',
-        employee: {
-            id: '1',
-            fullname: 'Test User'
-        }
+        fullname: 'Test User'
     };
 
     beforeEach(async () => {
@@ -65,75 +61,62 @@ describe('AuthService', () => {
 
     describe('validateUser', () => {
         it('should return user when credentials are valid', async () => {
-            const username = 'testuser';
+            const email = 'testuser@gmail.com';
             const password = 'password123';
 
             (prismaService.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
 
             mockedBcrypt.compare.mockResolvedValue(true as never);
 
-            const result = await service.validateUser(username, password);
+            const result = await service.validateUser(email, password);
 
             expect(result).toEqual({
                 id: mockUser.id,
-                username: mockUser.username,
+                email: mockUser.email,
                 password: mockUser.password,
-                role: mockUser.role,
-                employee: mockUser.employee
+                fullname: mockUser.fullname
             });
             expect(prismaService.user.findFirst).toHaveBeenCalledWith({
-                where: { username },
+                where: { email },
                 select: {
                     id: true,
-                    username: true,
-                    password: true,
-                    role: true,
-                    employee: {
-                        select: {
-                            fullname: true,
-                            id: true,
-                        }
-                    }
+                    email: true,
+                    fullname: true,
+                    password: true
                 }
             });
             expect(bcrypt.compare).toHaveBeenCalledWith(password, mockUser.password);
         });
 
         it('should return null when user is not found', async () => {
-            const username = 'nonexistent';
+            const email = 'nonexistent';
             const password = 'password123';
 
             (prismaService.user.findFirst as jest.Mock).mockResolvedValue(null);
 
-            const result = await service.validateUser(username, password);
+            const result = await service.validateUser(email, password);
 
             expect(result).toBeNull();
             expect(prismaService.user.findFirst).toHaveBeenCalledWith({
-                where: { username },
+                where: { email },
                 select: {
                     id: true,
-                    username: true,
-                    password: true,
-                    role: true,
-                    employee: {
-                        select: {
-                            fullname: true,
-                            id: true,
-                        }
-                    }
+                    email: true,
+                    fullname: true,
+                    password: true
                 }
             });
         });
 
         it('should return null when password is invalid', async () => {
-            const username = 'testuser';
+            const email = 'testuser@gmail.com';
             const password = 'wrongpassword';
 
             (prismaService.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
 
             mockedBcrypt.compare.mockResolvedValue(false as never);
 
-            const result = await service.validateUser(username, password);
+            const result = await service.validateUser(email, password);
 
             expect(result).toBeNull();
             expect(bcrypt.compare).toHaveBeenCalledWith(password, mockUser.password);
@@ -141,21 +124,20 @@ describe('AuthService', () => {
 
 
 
-        it('should handle user without employee relation', async () => {
-            const username = 'testuser';
+        it('should handle user without additional fields', async () => {
+            const email = 'testuser@gmail.com';
             const password = 'password123';
-            const userWithoutEmployee = { ...mockUser, employee: null };
-            (prismaService.user.findFirst as jest.Mock).mockResolvedValue(userWithoutEmployee);
+            const userWithoutExtraFields = { ...mockUser };
+            (prismaService.user.findFirst as jest.Mock).mockResolvedValue(userWithoutExtraFields);
             mockedBcrypt.compare.mockResolvedValue(true as never);
 
-            const result = await service.validateUser(username, password);
+            const result = await service.validateUser(email, password);
 
             expect(result).toEqual({
-                id: userWithoutEmployee.id,
-                username: userWithoutEmployee.username,
-                password: userWithoutEmployee.password,
-                role: userWithoutEmployee.role,
-                employee: null
+                id: userWithoutExtraFields.id,
+                email: userWithoutExtraFields.email,
+                password: userWithoutExtraFields.password,
+                fullname: userWithoutExtraFields.fullname
             });
         });
     });
@@ -170,24 +152,17 @@ describe('AuthService', () => {
 
             expect(result).toEqual({
                 id: mockUser.id,
-                username: mockUser.username,
+                email: mockUser.email,
                 password: mockUser.password,
-                role: mockUser.role,
-                employee: mockUser.employee
+                fullname: mockUser.fullname
             });
             expect(prismaService.user.findUnique).toHaveBeenCalledWith({
                 where: { id: userId },
                 select: {
                     id: true,
-                    username: true,
+                    email: true,
                     password: true,
-                    role: true,
-                    employee: {
-                        select: {
-                            fullname: true,
-                            id: true
-                        }
-                    }
+                    fullname: true
                 }
             });
         });
@@ -204,15 +179,9 @@ describe('AuthService', () => {
                 where: { id: userId },
                 select: {
                     id: true,
-                    username: true,
+                    email: true,
                     password: true,
-                    role: true,
-                    employee: {
-                        select: {
-                            fullname: true,
-                            id: true
-                        }
-                    }
+                    fullname: true
                 }
             });
         });

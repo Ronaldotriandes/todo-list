@@ -1,19 +1,26 @@
 'use client';
 
-import { useState } from 'react';
-import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import { api } from '@/lib/api-client';
+import { useAuthStore } from '@/stores/authStore';
+import { ApiResponse, LoginDTO } from '@/types';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 export default function RegisterPage() {
+  const router = useRouter();
+  const setAuthState = useAuthStore((state) => state.setAuthState);
+
   const [formData, setFormData] = useState({
-    name: '',
+    fullname: '',
     email: '',
     password: '',
     confirmPassword: ''
   });
   const [errors, setErrors] = useState({
-    name: '',
+    fullname: '',
     email: '',
     password: '',
     confirmPassword: ''
@@ -36,16 +43,16 @@ export default function RegisterPage() {
 
   const validateForm = () => {
     const newErrors = {
-      name: '',
+      fullname: '',
       email: '',
       password: '',
       confirmPassword: ''
     };
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Name is required';
-    } else if (formData.name.trim().length < 2) {
-      newErrors.name = 'Name must be at least 2 characters';
+    if (!formData.fullname.trim()) {
+      newErrors.fullname = 'Full name is required';
+    } else if (formData.fullname.trim().length < 2) {
+      newErrors.fullname = 'Full name must be at least 2 characters';
     }
 
     if (!formData.email) {
@@ -67,48 +74,63 @@ export default function RegisterPage() {
     }
 
     setErrors(newErrors);
-    return !newErrors.name && !newErrors.email && !newErrors.password && !newErrors.confirmPassword;
+    return !newErrors.fullname && !newErrors.email && !newErrors.password && !newErrors.confirmPassword;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
 
     setIsLoading(true);
     try {
-      console.log('Register attempt:', {
-        name: formData.name,
-        email: formData.email,
-        password: formData.password
-      });
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      window.location.href = '/form/login';
-    } catch (error) {
+      const registerData = {
+        fullname: formData.fullname.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+      };
+
+      const response = await api.post<ApiResponse<LoginDTO>>('/auth/register', registerData);
+
+      if (response.success && response.data) {
+        setAuthState(response.data.user, response.data.access_token);
+
+        router.push('/dashboard');
+      } else {
+        throw new Error(response.message || 'Registration failed');
+      }
+    } catch (error: any) {
       console.error('Registration error:', error);
-      setErrors(prev => ({
-        ...prev,
-        email: 'Registration failed. Please try again.'
-      }));
+      const errorMessage = error.message || 'Registration failed. Please try again.';
+
+      if (errorMessage.includes('already exists') || errorMessage.includes('conflict')) {
+        setErrors(prev => ({
+          ...prev,
+          email: 'An account with this email already exists.'
+        }));
+      } else {
+        setErrors(prev => ({
+          ...prev,
+          email: errorMessage
+        }));
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="min-h-screen flex items-center justify-center bg-gray-200 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 p-8 bg-white   border-2 rounded-3xl">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Create your account
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             Or{' '}
-            <Link href="/form/login" className="font-medium text-blue-600 hover:text-blue-500">
+            <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">
               sign in to your existing account
             </Link>
           </p>
@@ -118,10 +140,10 @@ export default function RegisterPage() {
             <Input
               label="Full Name"
               type="text"
-              name="name"
-              value={formData.name}
+              name="fullname"
+              value={formData.fullname}
               onChange={handleChange}
-              error={errors.name}
+              error={errors.fullname}
               required
               fullWidth
               placeholder="Enter your full name"
@@ -138,7 +160,7 @@ export default function RegisterPage() {
               fullWidth
               placeholder="Enter your email"
             />
-            
+
             <Input
               label="Password"
               type="password"

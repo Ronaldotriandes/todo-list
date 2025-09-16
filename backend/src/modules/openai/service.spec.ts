@@ -1,67 +1,47 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { PrismaService } from 'libs/prisma/src';
-import * as utils from 'src/utils';
-import { AttendanceService } from './service';
+import { ConfigService } from '@nestjs/config';
+import { OpenAI } from 'openai';
+import { AiService } from './service';
 
-jest.mock('src/utils', () => ({
-    getIndonesiaDate: jest.fn(),
-}));
+jest.mock('openai');
 
-describe('AttendanceService', () => {
-    let service: AttendanceService;
-    let prismaService: jest.Mocked<PrismaService>;
+describe('AiService', () => {
+    let service: AiService;
+    let configService: ConfigService;
+    let mockOpenAI: jest.Mocked<OpenAI>;
 
-    const mockUser = {
-        id: '1',
-        username: 'testuser',
-        employee: {
-            id: 'emp-1',
-            fullname: 'Test Employee'
-        }
-    };
-
-    const mockAttendancePeriod = {
-        id: 'period-1',
-        startDate: new Date('2024-01-01'),
-        endDate: new Date('2024-01-31'),
-        status: 'ACTIVE'
-    };
-
-    const mockAttendance = {
-        id: 'attendance-1',
-        employeeId: 'emp-1',
-        attendancePeriodId: 'period-1',
-        date: new Date('2024-01-15'),
-        checkInTime: new Date('2024-01-15T08:00:00Z'),
-        checkOutTime: null,
-        isPresent: true
+    const mockConfig = {
+        'app.aiApiKey': 'test-api-key'
     };
 
     beforeEach(async () => {
-        const mockPrismaService = {
-            attendancePeriod: {
-                findFirst: jest.fn(),
-            },
-            attendance: {
-                findFirst: jest.fn(),
-                create: jest.fn(),
-                update: jest.fn(),
-            },
+        const mockConfigService = {
+            get: jest.fn((key: string) => mockConfig[key])
         };
+
+        const mockCreate = jest.fn();
+        mockOpenAI = {
+            chat: {
+                completions: {
+                    create: mockCreate
+                }
+            }
+        } as any;
+
+        (OpenAI as jest.MockedClass<typeof OpenAI>).mockImplementation(() => mockOpenAI);
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
-                AttendanceService,
+                AiService,
                 {
-                    provide: PrismaService,
-                    useValue: mockPrismaService,
+                    provide: ConfigService,
+                    useValue: mockConfigService,
                 },
             ],
         }).compile();
 
-        service = module.get<AttendanceService>(AttendanceService);
-        prismaService = module.get(PrismaService);
+        service = module.get<AiService>(AiService);
+        configService = module.get<ConfigService>(ConfigService);
     });
 
     afterEach(() => {
@@ -72,218 +52,182 @@ describe('AttendanceService', () => {
         expect(service).toBeDefined();
     });
 
-    describe('isWeekend', () => {
-        it('should return true for Sunday', () => {
-            const sunday = new Date('2024-01-14');
-            expect(service['isWeekend'](sunday)).toBe(true);
+    it('should initialize OpenAI client with correct configuration', () => {
+        expect(OpenAI).toHaveBeenCalledWith({
+            apiKey: 'test-api-key',
+            baseURL: 'https://api.groq.com/openai/v1'
         });
-
-        it('should return true for Saturday', () => {
-            const saturday = new Date('2024-01-13');
-            expect(service['isWeekend'](saturday)).toBe(true);
-        });
-
-        it('should return false for weekdays', () => {
-            const monday = new Date('2024-01-15');
-            expect(service['isWeekend'](monday)).toBe(false);
-
-            const wednesday = new Date('2024-01-17');
-            expect(service['isWeekend'](wednesday)).toBe(false);
-
-            const friday = new Date('2024-01-19');
-            expect(service['isWeekend'](friday)).toBe(false);
-        });
+        expect(configService.get).toHaveBeenCalledWith('app.aiApiKey');
     });
 
-    describe('createAttendance', () => {
-        const mockCurrentDate = new Date('2024-01-15T08:00:00Z');
+    describe('suggestTasks', () => {
+        const mockResponse = {
+            choices: [{
+                message: {
+                    content: '{"tasks":["Tugas 1","Tugas 2","Tugas 3"]}'
+                }
+            }]
+        };
 
-        beforeEach(() => {
-            (utils.getIndonesiaDate as jest.Mock).mockReturnValue(mockCurrentDate);
-        });
+        it('should suggest tasks successfully with valid JSON response', async () => {
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(mockResponse as any);
 
-        it('should throw BadRequestException when trying to create attendance on weekend', async () => {
-            const weekendDate = new Date('2024-01-14T08:00:00Z');
-            (utils.getIndonesiaDate as jest.Mock).mockReturnValue(weekendDate);
+            const result = await service.suggestTasks('Belajar programming');
 
-            await expect(service.createAttendance(mockUser)).rejects.toThrow(BadRequestException);
-            await expect(service.createAttendance(mockUser)).rejects.toThrow('Attendance cannot be recorded on weekends.');
-        });
-
-        it('should throw ConflictException when no active attendance period exists', async () => {
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(null);
-
-            await expect(service.createAttendance(mockUser)).rejects.toThrow(ConflictException);
-            await expect(service.createAttendance(mockUser)).rejects.toThrow('An attendance period already exists for the current date');
-
-            expect(prismaService.attendancePeriod.findFirst).toHaveBeenCalledWith({
-                where: {
-                    startDate: {
-                        lte: mockCurrentDate,
+            expect(result).toEqual(['Tugas 1', 'Tugas 2', 'Tugas 3']);
+            expect(mockOpenAI.chat.completions.create as jest.Mock).toHaveBeenCalledWith({
+                model: 'llama-3.1-8b-instant',
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'Kamu adalah asisten todo. Diberikan sebuah tujuan dari user, buatkan 3 tugas spesifik dan praktis dalam bahasa Indonesia. Format output: {"tasks":["Tugas 1","Tugas 2","Tugas 3"]}'
                     },
-                    endDate: {
-                        gte: mockCurrentDate,
-                    },
-                    status: 'ACTIVE',
-                },
-                select: {
-                    id: true,
-                }
+                    { role: 'user', content: 'Belajar programming' }
+                ]
             });
         });
 
-        it('should throw BadRequestException when user has already checked out', async () => {
-            const attendanceWithCheckOut = {
-                ...mockAttendance,
-                checkOutTime: new Date('2024-01-15T17:00:00Z')
+        it('should handle response with JSON embedded in text', async () => {
+            const responseWithExtraText = {
+                choices: [{
+                    message: {
+                        content: 'Berikut adalah tugas-tugas: {"tasks":["Task A","Task B","Task C"]} yang bisa dilakukan.'
+                    }
+                }]
             };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(responseWithExtraText as any);
 
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(mockAttendancePeriod);
-            (prismaService.attendance.findFirst as jest.Mock).mockResolvedValue(attendanceWithCheckOut);
+            const result = await service.suggestTasks('Test input');
 
-            await expect(service.createAttendance(mockUser)).rejects.toThrow(BadRequestException);
-            await expect(service.createAttendance(mockUser)).rejects.toThrow('You have already checked out');
-
-            expect(prismaService.attendance.findFirst).toHaveBeenCalledWith({
-                where: {
-                    employeeId: mockUser.employee.id,
-                    date: mockCurrentDate
-                },
-                select: {
-                    id: true,
-                    checkOutTime: true
-                }
-            });
+            expect(result).toEqual(['Task A', 'Task B', 'Task C']);
         });
 
-        it('should update existing attendance with checkout time when user already checked in', async () => {
-            const updatedAttendance = {
-                ...mockAttendance,
-                checkOutTime: mockCurrentDate
+        it('should return empty array when no valid JSON found', async () => {
+            const invalidResponse = {
+                choices: [{
+                    message: {
+                        content: 'This is not a valid JSON response'
+                    }
+                }]
             };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(invalidResponse as any);
 
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(mockAttendancePeriod);
-            (prismaService.attendance.findFirst as jest.Mock).mockResolvedValue(mockAttendance);
-            (prismaService.attendance.update as jest.Mock).mockResolvedValue(updatedAttendance);
+            const result = await service.suggestTasks('Test input');
 
-            const result = await service.createAttendance(mockUser);
-
-            expect(result).toEqual(updatedAttendance);
-            expect(prismaService.attendance.update).toHaveBeenCalledWith({
-                where: {
-                    id: mockAttendance.id
-                },
-                data: {
-                    checkOutTime: mockCurrentDate,
-                }
-            });
+            expect(result).toEqual([]);
         });
 
-        it('should create new attendance when user has not checked in yet', async () => {
-            const newAttendance = {
-                ...mockAttendance,
-                checkInTime: mockCurrentDate
+        it('should return empty array when JSON is invalid', async () => {
+            const invalidJsonResponse = {
+                choices: [{
+                    message: {
+                        content: '{"tasks":["Task 1","Task 2"], invalid: syntax}'
+                    }
+                }]
             };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(invalidJsonResponse as any);
 
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(mockAttendancePeriod);
-            (prismaService.attendance.findFirst as jest.Mock).mockResolvedValue(null);
-            (prismaService.attendance.create as jest.Mock).mockResolvedValue(newAttendance);
+            const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+            const result = await service.suggestTasks('Test input');
 
-            const result = await service.createAttendance(mockUser);
-
-            expect(result).toEqual(newAttendance);
-            expect(prismaService.attendance.create).toHaveBeenCalledWith({
-                data: {
-                    attendancePeriodId: mockAttendancePeriod.id,
-                    employeeId: mockUser.employee.id,
-                    date: mockCurrentDate,
-                    checkInTime: mockCurrentDate,
-                    isPresent: true,
-                    createdBy: mockUser.employee.id || mockUser.id,
-                }
-            });
+            expect(result).toEqual([]);
+            expect(consoleSpy).toHaveBeenCalledWith('Error parsing JSON with regex:', expect.any(Error));
+            consoleSpy.mockRestore();
         });
 
-        it('should handle attendance period query correctly', async () => {
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(mockAttendancePeriod);
-            (prismaService.attendance.findFirst as jest.Mock).mockResolvedValue(null);
-            (prismaService.attendance.create as jest.Mock).mockResolvedValue(mockAttendance);
-
-            await service.createAttendance(mockUser);
-
-            expect(prismaService.attendancePeriod.findFirst).toHaveBeenCalledWith({
-                where: {
-                    startDate: {
-                        lte: mockCurrentDate,
-                    },
-                    endDate: {
-                        gte: mockCurrentDate,
-                    },
-                    status: 'ACTIVE',
-                },
-                select: {
-                    id: true,
-                }
-            });
-        });
-
-        it('should handle different time scenarios for check-in and check-out', async () => {
-            const morningDate = new Date('2024-01-15T08:00:00Z');
-            (utils.getIndonesiaDate as jest.Mock).mockReturnValue(morningDate);
-
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(mockAttendancePeriod);
-            (prismaService.attendance.findFirst as jest.Mock).mockResolvedValue(null);
-            (prismaService.attendance.create as jest.Mock).mockResolvedValue({
-                ...mockAttendance,
-                checkInTime: morningDate
-            });
-
-            const result = await service.createAttendance(mockUser);
-
-            expect(prismaService.attendance.create).toHaveBeenCalledWith({
-                data: {
-                    attendancePeriodId: mockAttendancePeriod.id,
-                    employeeId: mockUser.employee.id,
-                    date: morningDate,
-                    checkInTime: morningDate,
-                    isPresent: true,
-                    createdBy: mockUser.employee.id || mockUser.id,
-                }
-            });
-        });
-
-        it('should handle user without employee relation gracefully', async () => {
-            const userWithoutEmployee = {
-                id: '1',
-                username: 'testuser',
-                employee: null
+        it('should return empty array when tasks property is missing', async () => {
+            const noTasksResponse = {
+                choices: [{
+                    message: {
+                        content: '{"other":"value"}'
+                    }
+                }]
             };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(noTasksResponse as any);
 
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(mockAttendancePeriod);
+            const result = await service.suggestTasks('Test input');
 
-            await expect(service.createAttendance(userWithoutEmployee)).rejects.toThrow();
+            expect(result).toEqual([]);
         });
 
-        it('should verify attendance query parameters', async () => {
-            (prismaService.attendancePeriod.findFirst as jest.Mock).mockResolvedValue(mockAttendancePeriod);
-            (prismaService.attendance.findFirst as jest.Mock).mockResolvedValue(mockAttendance);
-            (prismaService.attendance.update as jest.Mock).mockResolvedValue({
-                ...mockAttendance,
-                checkOutTime: mockCurrentDate
-            });
+        it('should handle null/undefined message content', async () => {
+            const nullContentResponse = {
+                choices: [{
+                    message: {
+                        content: null
+                    }
+                }]
+            };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(nullContentResponse as any);
 
-            await service.createAttendance(mockUser);
+            const result = await service.suggestTasks('Test input');
 
-            expect(prismaService.attendance.findFirst).toHaveBeenCalledWith({
-                where: {
-                    employeeId: mockUser.employee.id,
-                    date: mockCurrentDate
-                },
-                select: {
-                    id: true,
-                    checkOutTime: true
-                }
-            });
+            expect(result).toEqual([]);
+        });
+
+        it('should handle undefined message content', async () => {
+            const undefinedContentResponse = {
+                choices: [{
+                    message: {}
+                }]
+            };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(undefinedContentResponse as any);
+
+            const result = await service.suggestTasks('Test input');
+
+            expect(result).toEqual([]);
+        });
+
+        it('should handle OpenAI API errors', async () => {
+            const error = new Error('API Error');
+            (mockOpenAI.chat.completions.create as jest.Mock).mockRejectedValue(error);
+
+            await expect(service.suggestTasks('Test input')).rejects.toThrow('API Error');
+        });
+
+        it('should handle complex nested JSON in response', async () => {
+            const complexResponse = {
+                choices: [{
+                    message: {
+                        content: 'Here are some tasks: {"tasks":["Belajar TypeScript","Membuat REST API","Menulis unit test"],"metadata":{"count":3}} for your goal.'
+                    }
+                }]
+            };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(complexResponse as any);
+
+            const result = await service.suggestTasks('Programming goal');
+
+            expect(result).toEqual(['Belajar TypeScript', 'Membuat REST API', 'Menulis unit test']);
+        });
+
+        it('should handle empty tasks array', async () => {
+            const emptyTasksResponse = {
+                choices: [{
+                    message: {
+                        content: '{"tasks":[]}'
+                    }
+                }]
+            };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(emptyTasksResponse as any);
+
+            const result = await service.suggestTasks('Test input');
+
+            expect(result).toEqual([]);
+        });
+
+        it('should handle multiple JSON objects and pick the first valid one', async () => {
+            const multipleJsonResponse = {
+                choices: [{
+                    message: {
+                        content: 'Some text {"tasks":["First JSON","Another task"]} and more text'
+                    }
+                }]
+            };
+            (mockOpenAI.chat.completions.create as jest.Mock).mockResolvedValue(multipleJsonResponse as any);
+
+            const result = await service.suggestTasks('Test input');
+
+            expect(result).toEqual(['First JSON', 'Another task']);
         });
     });
 });

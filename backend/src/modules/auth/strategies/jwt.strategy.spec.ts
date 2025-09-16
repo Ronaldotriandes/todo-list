@@ -9,13 +9,9 @@ describe('JwtStrategy', () => {
 
     const mockUser = {
         id: '1',
-        username: 'testuser',
-        password: 'hashedpassword',
-        role: 'USER',
-        employee: {
-            id: '1',
-            fullname: 'Test User'
-        }
+        fullname: 'Test User',
+        email: 'testuser@gmail.com',
+        password: 'hashedpassword'
     };
 
     beforeEach(async () => {

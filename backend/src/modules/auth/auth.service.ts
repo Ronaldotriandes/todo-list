@@ -1,9 +1,10 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from 'libs/prisma/src';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 
 interface User {
     id: string;
@@ -97,5 +98,57 @@ export class AuthService {
             }
         }
         return null;
+    }
+
+    async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
+        try {
+            // Check if user already exists
+            const existingUser = await this.prismaService.user.findUnique({
+                where: { email: registerDto.email }
+            });
+
+            if (existingUser) {
+                throw new ConflictException('User with this email already exists');
+            }
+
+            // Hash password
+            const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+
+            // Create user
+            const user = await this.prismaService.user.create({
+                data: {
+                    fullname: registerDto.fullname,
+                    email: registerDto.email,
+                    password: hashedPassword,
+                },
+                select: {
+                    id: true,
+                    fullname: true,
+                    email: true,
+                }
+            });
+
+            // Generate JWT token
+            const payload = {
+                id: user.id,
+                email: user.email,
+                fullname: user.fullname,
+                sub: user.id,
+            };
+
+            return {
+                access_token: this.jwtService.sign(payload),
+                user: {
+                    id: user.id,
+                    fullname: user.fullname,
+                    email: user.email,
+                }
+            };
+        } catch (error) {
+            if (error instanceof ConflictException) {
+                throw error;
+            }
+            throw new Error('Failed to create user');
+        }
     }
 }

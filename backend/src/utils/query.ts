@@ -4,16 +4,57 @@ export interface QueryParams {
     perpage?: number | string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    search?: string;
     [key: string]: any;
 }
 
-export async function QueryGetAll<T>(
-    model: any, // Prisma model (ex: prisma.user)
-    quer: QueryParams = {}, // dari req.query
-    searchFields: string[] = [], // untuk LIKE
+export function parseArrayValue(value: any): string[] {
+    if (Array.isArray(value)) {
+        return value.map(v => String(v)).filter(v => v.trim() !== '');
+    }
+    if (typeof value === 'string' && value.includes(',')) {
+        return value.split(',').map(v => v.trim()).filter(v => v !== '');
+    }
+    return value ? [String(value)] : [];
+}
+
+export function buildWhereLikeCondition(field: string, value: any): any {
+    const parsedValues = parseArrayValue(value);
+
+    if (parsedValues.length === 0) return null;
+
+    if (parsedValues.length === 1) {
+        if (field.includes('.')) {
+            const parts = field.split('.');
+            let nested: any = {};
+            let current = nested;
+
+            parts.forEach((p, idx) => {
+                if (idx === parts.length - 1) {
+                    current[p] = { contains: parsedValues[0], mode: 'insensitive' };
+                } else {
+                    current[p] = {};
+                    current = current[p];
+                }
+            });
+            return nested;
+        } else {
+            return { [field]: { contains: parsedValues[0], mode: 'insensitive' } };
+        }
+    } else {
+        return parsedValues.map(v => ({
+            [field]: { contains: v, mode: 'insensitive' }
+        }));
+    }
+}
+
+export async function QueryGetAll(
+    model: any,
+    quer: QueryParams = {},
+    searchFields: string[] = [],
     options: {
-        select?: any;   // Prisma select object
-        include?: any;  // Prisma include object
+        select?: any;
+        include?: any;
     } = {},
 ) {
     const page = quer && quer.page ? parseInt(String(quer.page), 10) : 1;
@@ -56,28 +97,52 @@ export async function QueryGetAll<T>(
         }
     });
 
-    // 5. Default equality
+    // 5. LIKE (wherelike-)
     Object.keys(quer).forEach((key) => {
-        if (key.startsWith('where-')) {
+        if (key.startsWith('wherelike-')) {
+            const field = key.replace('wherelike-', '');
+            const value = quer[key];
+
+            const condition = buildWhereLikeCondition(field, value);
+            if (condition) {
+                if (Array.isArray(condition)) {
+                    if (!where.OR) where.OR = [];
+                    where.OR.push(...condition);
+                } else {
+                    Object.assign(where, condition);
+                }
+            }
+        }
+    });
+
+    // 6. Default equality
+    Object.keys(quer).forEach((key) => {
+        if (key.startsWith('where-') && !key.startsWith('wherelike-')) {
             const field = key.replace('where-', '');
             const value = quer[key];
-            if (field.includes('.')) {
-                const parts = field.split('.');
-                let nested: any = {};
-                let current = nested;
 
-                parts.forEach((p, idx) => {
-                    if (idx === parts.length - 1) {
-                        current[p] = { contains: value, mode: 'insensitive' };
-                    } else {
-                        current[p] = {};
-                        current = current[p];
-                    }
-                });
+            const parsedValues = parseArrayValue(value);
 
-                Object.assign(where, nested);
-            } else {
-                where[field] = value;
+            if (parsedValues.length > 1) {
+                where[field] = { in: parsedValues };
+            } else if (parsedValues.length === 1) {
+                if (field.includes('.')) {
+                    const parts = field.split('.');
+                    let nested: any = {};
+                    let current = nested;
+
+                    parts.forEach((p, idx) => {
+                        if (idx === parts.length - 1) {
+                            current[p] = parsedValues[0];
+                        } else {
+                            current[p] = {};
+                            current = current[p];
+                        }
+                    });
+                    Object.assign(where, nested);
+                } else {
+                    where[field] = parsedValues[0];
+                }
             }
         }
     });
