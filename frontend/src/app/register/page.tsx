@@ -101,9 +101,9 @@ export default function RegisterPage() {
       } else {
         throw new Error(response.message || 'Registration failed');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Registration error:', error);
-      const errorMessage = error.message || 'Registration failed. Please try again.';
+      const errorMessage = error instanceof Error ? error.message : 'Registration failed. Please try again.';
 
       if (errorMessage.includes('already exists') || errorMessage.includes('conflict')) {
         setErrors(prev => ({

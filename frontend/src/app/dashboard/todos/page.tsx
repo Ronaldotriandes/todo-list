@@ -15,11 +15,11 @@ export default function TodosPage() {
     totalPages,
     totalItems,
     deleteTodo,
-    updateTodo,
     setCurrentPage
   } = useTodoStore();
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [editingTodo, setEditingTodo] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -48,18 +48,7 @@ export default function TodosPage() {
     }
   };
 
-  const handleStatusChange = async (todo: any, newStatus: string) => {
-    try {
-      await updateTodo(todo.id, {
-        ...todo,
-        status: newStatus,
-        completed: newStatus === 'done',
-      });
-      fetchTodos(currentPage, searchTerm);
-    } catch (error) {
-      console.error('Failed to update todo status:', error);
-    }
-  };
+
 
   const handlePageChange = async (page: number) => {
     setCurrentPage(page);
